@@ -1,0 +1,469 @@
+```html
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>QR-коди наборів</title>
+
+    <!-- Бібліотека для генерації QR-кодів -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 30px;
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            color: #222;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .description {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        #status {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 16px;
+        }
+
+        #qr-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 25px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .qr-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+
+        .qr-code {
+            display: flex;
+            justify-content: center;
+            margin: 10px 0 15px;
+        }
+
+        .code {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            word-break: break-word;
+        }
+
+        .info {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 15px;
+        }
+
+        button {
+            border: none;
+            border-radius: 6px;
+            padding: 10px 16px;
+            background: #1a73e8;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #1557b0;
+        }
+
+        .error {
+            color: #c62828;
+            background: #ffebee;
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 800px;
+            margin: 20px auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>QR-коди наборів</h1>
+
+    <div class="description">
+        QR-коди автоматично завантажуються з Google Sheets
+    </div>
+
+    <div id="status">
+        Завантаження даних...
+    </div>
+
+    <div id="qr-container"></div>
+
+
+<script>
+
+    /*
+     * ============================================================
+     * НАЛАШТУВАННЯ
+     * ============================================================
+     *
+     * Тут потрібно вставити ПОСИЛАННЯ НА ОПУБЛІКОВАНУ ТАБЛИЦЮ.
+     *
+     * Формат:
+     *
+     * https://docs.google.com/spreadsheets/d/e/XXXXXXXX/pub?gid=XXXXXXXX&single=true&output=csv
+     *
+     */
+
+    const SHEET_URL =
+        "https://docs.google.com/spreadsheets/d/e/2PACX-1vS82CM5QXLSz3iLl1uAam1i7GTxoQQtuusvC8hK02e61HqSRFMPJGXIYiA8pNIZ2mA8R3089MeU6laK/pub?gid=2099350670&single=true&output=csv";
+
+
+    /*
+     * ============================================================
+     * CSV PARSER
+     * ============================================================
+     */
+
+    function parseCSV(text) {
+
+        const rows = [];
+        let row = [];
+        let value = "";
+        let insideQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+
+            const char = text[i];
+            const next = text[i + 1];
+
+            if (char === '"' && insideQuotes && next === '"') {
+                value += '"';
+                i++;
+            }
+
+            else if (char === '"') {
+                insideQuotes = !insideQuotes;
+            }
+
+            else if (char === ',' && !insideQuotes) {
+                row.push(value);
+                value = "";
+            }
+
+            else if ((char === '\n' || char === '\r') && !insideQuotes) {
+
+                if (char === '\r' && next === '\n') {
+                    i++;
+                }
+
+                row.push(value);
+                value = "";
+
+                if (row.some(cell => cell.trim() !== "")) {
+                    rows.push(row);
+                }
+
+                row = [];
+            }
+
+            else {
+                value += char;
+            }
+        }
+
+        if (value !== "" || row.length > 0) {
+            row.push(value);
+
+            if (row.some(cell => cell.trim() !== "")) {
+                rows.push(row);
+            }
+        }
+
+        return rows;
+    }
+
+
+    /*
+     * ============================================================
+     * ПОШУК КОЛОНКИ З КОДОМ
+     * ============================================================
+     */
+
+    function findCodeColumn(headers) {
+
+        const possibleNames = [
+            "Код набору",
+            "Код наборів",
+            "Код",
+            "code",
+            "Code",
+            "CODE"
+        ];
+
+        for (const name of possibleNames) {
+
+            const index = headers.findIndex(
+                header =>
+                    header.trim().toLowerCase() === name.toLowerCase()
+            );
+
+            if (index !== -1) {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+
+    /*
+     * ============================================================
+     * СТВОРЕННЯ QR
+     * ============================================================
+     */
+
+    function createQR(code, rowData, headers, index) {
+
+        const card = document.createElement("div");
+        card.className = "qr-card";
+
+        const title = document.createElement("div");
+        title.className = "code";
+        title.textContent = code;
+
+        const qrWrapper = document.createElement("div");
+        qrWrapper.className = "qr-code";
+
+        card.appendChild(title);
+        card.appendChild(qrWrapper);
+
+        /*
+         * Додаємо додаткову інформацію з таблиці.
+         */
+
+        const info = document.createElement("div");
+        info.className = "info";
+
+        let infoText = "";
+
+        for (let i = 0; i < headers.length; i++) {
+
+            if (i === index) {
+                continue;
+            }
+
+            if (rowData[i] && rowData[i].trim() !== "") {
+
+                infoText +=
+                    `${headers[i]}: ${rowData[i]}<br>`;
+            }
+        }
+
+        info.innerHTML = infoText;
+
+        card.appendChild(info);
+
+
+        /*
+         * Генеруємо QR.
+         *
+         * В QR записується саме код набору.
+         */
+
+        new QRCode(qrWrapper, {
+            text: code,
+            width: 180,
+            height: 180,
+            correctLevel: QRCode.CorrectLevel.H
+        });
+
+
+        /*
+         * Кнопка завантаження QR у PNG.
+         */
+
+        const button = document.createElement("button");
+
+        button.textContent = "Завантажити PNG";
+
+        button.onclick = function () {
+
+            const canvas = qrWrapper.querySelector("canvas");
+            const image = qrWrapper.querySelector("img");
+
+            let url;
+
+            if (canvas) {
+                url = canvas.toDataURL("image/png");
+            }
+            else if (image) {
+                url = image.src;
+            }
+
+            if (!url) {
+                alert("Не вдалося отримати QR-код.");
+                return;
+            }
+
+            const link = document.createElement("a");
+
+            link.href = url;
+            link.download = `${code}.png`;
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        card.appendChild(button);
+
+        return card;
+    }
+
+
+    /*
+     * ============================================================
+     * ЗАВАНТАЖЕННЯ GOOGLE SHEETS
+     * ============================================================
+     */
+
+    async function loadSheet() {
+
+        const status = document.getElementById("status");
+        const container = document.getElementById("qr-container");
+
+        try {
+
+            if (
+                !SHEET_URL ||
+                SHEET_URL.includes("ВСТАВ_СЮДИ")
+            ) {
+
+                throw new Error(
+                    "Не вказано посилання на Google Sheets."
+                );
+            }
+
+
+            const response = await fetch(SHEET_URL);
+
+            if (!response.ok) {
+                throw new Error(
+                    `Помилка завантаження таблиці: ${response.status}`
+                );
+            }
+
+            const csvText = await response.text();
+
+            const rows = parseCSV(csvText);
+
+            if (rows.length < 2) {
+                throw new Error(
+                    "У таблиці не знайдено даних."
+                );
+            }
+
+
+            /*
+             * Перший рядок — заголовки.
+             */
+
+            const headers = rows[0];
+
+            /*
+             * Знаходимо колонку "Код набору".
+             */
+
+            const codeColumn = findCodeColumn(headers);
+
+            if (codeColumn === -1) {
+
+                throw new Error(
+                    'Не знайдено колонку "Код набору".'
+                );
+            }
+
+
+            /*
+             * Щоб однаковий код не створювався кілька разів.
+             */
+
+            const uniqueCodes = new Set();
+
+
+            for (let i = 1; i < rows.length; i++) {
+
+                const row = rows[i];
+
+                const code =
+                    (row[codeColumn] || "").trim();
+
+                if (!code) {
+                    continue;
+                }
+
+                if (uniqueCodes.has(code)) {
+                    continue;
+                }
+
+                uniqueCodes.add(code);
+
+                const card =
+                    createQR(
+                        code,
+                        row,
+                        headers,
+                        codeColumn
+                    );
+
+                container.appendChild(card);
+            }
+
+
+            status.textContent =
+                `Знайдено QR-кодів: ${uniqueCodes.size}`;
+
+        }
+
+        catch (error) {
+
+            console.error(error);
+
+            status.innerHTML = `
+                <div class="error">
+                    <strong>Не вдалося завантажити таблицю.</strong>
+                    <br><br>
+                    ${error.message}
+                </div>
+            `;
+        }
+    }
+
+
+    /*
+     * Запускаємо завантаження.
+     */
+
+    loadSheet();
+
+</script>
+
+</body>
+</html>
+```
