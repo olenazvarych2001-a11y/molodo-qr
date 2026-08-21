@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Сканер QR — MOLODO</title>
+
+<!-- Офіційний SDK Telegram Mini App -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- Бібліотека сканування QR через камеру -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    color: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+    height: 100%;
+  }
+  #status {
+    padding: 16px;
+    text-align: center;
+    font-size: 16px;
+    min-height: 24px;
+  }
+  #reader {
+    width: 100%;
+  }
+  #reader video {
+    width: 100% !important;
+  }
+  .hint {
+    text-align: center;
+    color: #aaa;
+    font-size: 13px;
+    padding: 0 16px 16px;
+  }
+</style>
+</head>
+<body>
+
+<div id="status">Наведіть камеру на QR-код набору...</div>
+<div id="reader"></div>
+<div class="hint">Тримайте телефон рівно, QR має повністю потрапляти в рамку.</div>
+
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+
+  const statusEl = document.getElementById("status");
+  let handled = false;
+
+  function onScanSuccess(decodedText) {
+    if (handled) return;
+    handled = true;
+
+    statusEl.textContent = "✅ Розпізнано: " + decodedText;
+
+    html5QrcodeScanner.clear().catch(() => {});
+
+    // Надсилаємо розпізнаний текст назад у чат-бот
+    tg.sendData(decodedText);
+
+    setTimeout(() => tg.close(), 400);
+  }
+
+  function onScanFailure(_error) {
+    // Ігноруємо помилки окремих кадрів — це нормально під час наведення камери,
+    // поки QR ще не потрапив у фокус.
+  }
+
+  const html5QrcodeScanner = new Html5QrcodeScanner(
+    "reader",
+    { fps: 10, qrbox: { width: 250, height: 250 } },
+    /* verbose= */ false
+  );
+
+  html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+</script>
+
+</body>
+</html>
